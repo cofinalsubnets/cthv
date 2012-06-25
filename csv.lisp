@@ -118,7 +118,7 @@
 (defun join (lst j)
   (format nil (format nil "~~{~~A~~^~A~~}" j) lst))
 
-(defun split (string char &optional (remove-p nil) &aux (last (1- (length string))))
+(defun split (string char &aux (last (1- (length string))))
   (loop for start = 0 then pos
         for pos = (position char string) then (position char string :start (1+ start))
         collect (subseq string start pos) into subs
