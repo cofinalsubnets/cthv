@@ -1,4 +1,4 @@
 cthv
 ====
 
-a small CSV library written in common lisp
+a tiny common lisp CSV library.
