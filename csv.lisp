@@ -35,6 +35,9 @@
 (defun read-csv-line (in &optional (rec-p nil))
   (multiple-value-bind (field more-p) (read-csv-field in)
     (if field (cons field (when more-p (read-csv-line in t)))
+      ;; if the fn was called recursively then we haven't actually
+      ;; reached EOL, so return an empty string or we'll drop
+      ;; trailing commas.
       (when rec-p (list "")))))
 
 (defun read-raw-csv-field (in &aux (more-p t))
@@ -62,11 +65,10 @@
                  (cons c (nqtd (cdr cs)))))))
     (multiple-value-bind (raw more-p) (read-raw-csv-field in)
       (when raw (values
-                  (coerce (nqtd (coerce
-                                  (if *elide-whitespace*
-                                    (string-trim +whitespace+ raw)
-                                    raw)
-                                  'list))
+                  (coerce (nqtd (coerce (if *elide-whitespace*
+                                          (string-trim +whitespace+ raw)
+                                          raw)
+                                        'list))
                           'string)
                   more-p)))))
 
