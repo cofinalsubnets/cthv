@@ -5,6 +5,5 @@
   :version "0.2"
   :serial t
   :components ((:file "package")
-               (:file "csv")
-               (:file "interface")
-               (:file "macro")))
+               (:file "parse")
+               (:file "emit")))
