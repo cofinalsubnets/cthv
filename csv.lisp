@@ -1,23 +1,10 @@
 (in-package :csv)
 
-(export '(*fs*
-          *rs*
-          +cr+
-          +lf+
-          +crlf+
-          file->csv
-          csv->file
-          string->csv
-          csv->string
-          read-csv-field
-          read-csv-line))
-
 (eval-when (:load-toplevel)
   ; we're line-break agnostic for reading purposes,
   ; so we just need these strings for writing.
-  (defparameter +cr+ (string #\Return))
-  (defparameter +lf+ (string #\Linefeed))
-  (defparameter +crlf+ (format nil "~A~A" #\Return #\Linefeed))
+  (defparameter +cr+ #\Return)
+  (defparameter +lf+ #\Linefeed)
   ; quotes and field separators should be characters
   ; for easy char-by-char parsing, though.
   (defparameter +comma+ #\,)
@@ -29,13 +16,11 @@
   ; some sane defaults 
   ; *rs* is only important when we're writing -
   ; cr, lf, and crlf will all be read the same.
-  (defvar *fs* +comma+)
-  (defvar *rs* +lf+)
-  (defvar *quote* +double-quotes+)
-  ; elide blank lines?
-  (defvar *elide-empty-rows* t)
+  (defparameter *fs* +comma+)
+  (defparameter *rs* +lf+)
+  (defparameter *quote* +double-quotes+)
   ; elide whitespace adjacent to field/line delimiters?
-  (defvar *elide-whitespace* t)
+  (defparameter *elide-whitespace* t)
   ; if so, what counts as whitespace?
   (defparameter +whitespace+ (list #\Space #\Tab)))
 
@@ -46,99 +31,59 @@
       ,@body))
 
 ;; read:
-(defun file->csv (filename)
-  (with-open-file (csv-file filename :direction :input)
-    (loop for row = (read-csv-line csv-file)
-          while row collect row)))
 
-(defun string->csv (str)
-  (with-input-from-string (csv-string str)
-    (loop for row = (read-csv-line csv-string)
-          while row collect row)))
+(defun read-csv-line (in &optional (rec-p nil))
+  (multiple-value-bind (field more-p) (read-csv-field in)
+    (if field (cons field (when more-p (read-csv-line in t)))
+      (when rec-p (list "")))))
 
-(defun read-csv-line (in &aux (field nil) (term nil))
-  "Read one CSV line from <in> and return a list of strings representing its contents."
-  (loop do (multiple-value-setq (field term) (read-csv-field in))
-        unless field return nil
-        collect field into line
-        when (member term (list #\Return #\Linefeed nil)) return line))
+(defun read-raw-csv-field (in &aux (more-p t))
+  (labels ((qtd (&aux (c (read-char in nil nil t)))
+             (if (null c) (error "Unexpected EOF while reading quoted extent.")
+               (cons c (if (char= c *quote*) (nqtd) (qtd)))))
+           (nqtd (&aux (c (read-char in nil nil t)))
+             (cond ((or (null c) (char= c *rs*)) (setf more-p nil))
+                   ((char= c *fs*) nil)
+                   (t (cons c (if (char= c *quote*) (qtd) (nqtd)))))))
+    (when (peek-char nil in nil)
+      (values (coerce (nqtd) 'string) more-p))))
 
-(defun read-csv-field (in &aux (out (make-string-output-stream)) (quoted? nil))
-  "Read one CSV field from <in> and return a string representing its contents."
-  (labels ((stringify (c) (write-char c out))
-           (quote! nil (setf quoted? t))
-           (unquote! nil (setf quoted? nil))
-           (next nil (peek-char nil in nil))
-           (quote? (c) (char= c *quote*))
-           (terminator? (c)
-             (or (null c)
-                 (char= c *fs*)
-                 (newline? c)))
-           (newline? (c)
-             "Return T if c is CR or LF. If c is CR and the next character is LF, burn the next character."
-             (if (char= c #\Linefeed) t
-               (if (char= c #\Return)
-                 (prog1 t
-                   (when (eq (peek-char nil in nil) #\Linefeed)
-                     (read-char in)))))))
-    (declare (inline stringify quote! unquote terminator? next))
-    (loop for c = (read-char in nil nil t)
-          initially (when (null (peek-char nil in nil)) (return nil)) ; return nil if we're already at EOF
-          if quoted? do (cond
-                          ((null c)
-                           (error "Unexpected EOF while reading `~A'"
-                                  (get-output-stream-string out))) ; EOF should not occur inside of quotes
-                          ((quote? c)
-                           (if (quote? (next))
-                             (stringify (read-char in)) ; double-quotes while quoted are stringified as a single quote.
-                             (unquote!)))
-                          (t (stringify c)))
-          else do (cond
-                    ((terminator? c)
-                     (let ((str (get-output-stream-string out))) ;return field contents we've read so far, and: if eof, nil; else if eol, t; else the last char we read
-                       (return (values (string-trim +whitespace+ str) c))))
-                    ((quote? c) (quote!))
-                    (t (stringify c))))))
+(defun read-csv-field (in)
+  (labels ((qtd (cs &aux (c (car cs)))
+             (if (char= c *quote*)
+               (if (and (cadr cs) (char= (cadr cs) *quote*))
+                 (cons *quote* (qtd (cddr cs)))
+                 (nqtd (cdr cs)))
+               (cons c (qtd (cdr cs)))))
+           (nqtd (cs &aux (c (car cs)))
+             (when c
+               (if (char= c *quote*)
+                 (qtd (cdr cs))
+                 (cons c (nqtd (cdr cs)))))))
+    (multiple-value-bind (raw more-p) (read-raw-csv-field in)
+      (when raw (values
+                  (coerce (nqtd (coerce
+                                  (if *elide-whitespace*
+                                    (string-trim +whitespace+ raw)
+                                    raw)
+                                  'list))
+                          'string)
+                  more-p)))))
 
 ;; write:
-(defun csv->file (csv filename &optional (header nil))
-  "Write a CSV to the named file with an optional header line (which should be a list of strings)."
-  (with-open-file (out filename :direction :output)
-    (princ (csv->string csv header) out)))
 
-(defun csv->string (csv &optional (header nil))
-  "Write a CSV to a string with an optional header line (which should be a list of strings)."
-  (let ((csv (if header
-               (cons header csv)
-               csv)))
-   (join (mapcar (lambda (n)
-                  (join (mapcar #'csv-escape n) *fs*)) csv) *rs*)))
-
-(defun csv-escape (string &aux (string (join (split string *quote*) *quote*)))
+(defun csv-escape (str)
   "Quote a string as needed for CSV output."
-  (if (or (position *quote* string)
-          (position *fs* string)
-          (position *rs* string))
-    (wrap string *quote*)
-    string))
-
-(defun translate-csv-file (infile outfile
-                           &key (rs *rs*) (fs *fs*) (quote *quote*)
-                           &aux (csv (file->csv infile)))
-  (with-csv-parameters (:rs rs :fs fs :quote quote)
-                       (csv->file csv outfile)))
-
-;some little helper fns
-(defun wrap (str w)
-  (format nil "~A~A~A" w str w))
-
-(defun join (lst j)
-  (format nil (format nil "~~{~~A~~^~A~~}" j) lst))
-
-(defun split (string char &aux (last (1- (length string))))
-  "Splits string on char into a list of strings each beginning with char."
-  (loop for start = 0 then pos
-        for pos = (position char string) then (position char string :start (1+ start))
-        collect (subseq string start pos) into subs
-        unless pos return subs
-        when (= pos last) collect (subseq string pos (1+ pos)) into subs and return subs))
+  (labels ((reqt (cs &aux (c (car cs)))
+             (when cs (cons c (if (char= c *quote*)
+                                (cons c (reqt (cdr cs)))
+                                (reqt (cdr cs)))))))
+    (let* ((chars (reqt (coerce str 'list)))
+           (str (coerce chars 'string)))
+      (if (or (member *quote* chars)
+              (member *fs* chars)
+              (member *rs* chars)
+              (member (car chars) +whitespace+)
+              (member (car (last chars)) +whitespace+))
+        (format nil "~A~A~A" *quote* str *quote*)
+        str))))
