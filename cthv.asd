@@ -5,5 +5,6 @@
   :version "0.2"
   :serial t
   :components ((:file "package")
+               (:file "core")
                (:file "parse")
                (:file "emit")))

@@ -1,5 +1,7 @@
 (in-package :csv)
 
+(export '(dump-csv))
+
 (defun dump-csv (struct &key (rs *rs*) (fs *fs*) (quote *quote*))
   (flet ((join (lst j) (format nil (format nil "~~{~~A~~^~A~~}" j) lst)))
     (with-csv-parameters (:rs rs :fs fs :quote quote)

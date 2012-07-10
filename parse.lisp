@@ -1,6 +1,7 @@
 (in-package :csv)
 
-
+(export '(load-csv
+          load-csv-file))
 
 (defun load-csv-file (filename &key (rs *rs*) (fs *fs*) (quote *quote*))
   (with-open-file (f filename)
@@ -52,4 +53,3 @@
                    (t (cons c (if (char= c *quote*) (qtd) (nqtd)))))))
     (when (peek-char nil in nil)
       (values (coerce (nqtd) 'string) more-p))))
-
