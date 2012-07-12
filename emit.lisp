@@ -1,10 +1,6 @@
 (in-package :csv)
 
-(export '(dump-csv
-          generate
-          row))
-
-(defun dump-csv (struct &key (rs *rs*) (fs *fs*) (quote *quote*) (to-file nil))
+(defun dump (struct &key (rs *rs*) (fs *fs*) (quote *quote*) (to-file nil))
   (flet ((join (lst j) (format nil (format nil "~~{~~A~~^~A~~}" j) lst))
          (stringify (e) (csv-escape (if (stringp e) e
                                       (format nil "~A" e))))

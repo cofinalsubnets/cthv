@@ -1,6 +1,5 @@
 (in-package :csv)
 
-(export '(with-csv-parameters))
 (eval-when (:load-toplevel)
   (defparameter *fs* #\,)
   (defparameter *rs* #\Linefeed)
